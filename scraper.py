@@ -1,36 +1,73 @@
-import requests
-from bs4 import BeautifulSoup
 import pandas as pd
-import random
 import time
+from bs4 import BeautifulSoup
+from selenium import webdriver
 
-def scrape_bama():
-    print("Connecting to bama.ir...")
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-    
-    # آدرس سمندهای مدل ۱۳۸۶ به بعد
-    url = "https://bama.ir/car/samand?year=1386-0"
+def extract_bama_cars():
+    options = webdriver.ChromeOptions()
     
     try:
-        # شبیه‌سازی دیتا برای زمانی که سایت اجازه دسترسی نمی‌دهد (برای اطمینان از نمره امتیازی)
-        cars = []
-        for i in range(1, 51):
-            cars.append({
-                'Price': f"{random.randint(200, 700)} Million",
-                'Mileage': f"{random.randint(10, 300) * 1000} km",
-                'Color': random.choice(['White', 'Black', 'Gray', 'Silver']),
-                'Production year': random.randint(1386, 1402),
-                'Transmission type': "Manual",
-                'Description': "سند تک برگ، بسیار تمیز و خانگی"
-            })
-        
-        df = pd.DataFrame(cars)
-        df.to_excel('samand_data.xlsx', index=False)
-        print("Success! 'samand_data.xlsx' created in your folder.")
+        driver = webdriver.Chrome(options=options)
     except Exception as e:
-        print(f"Error: {e}")
+        print("Chrome WebDriver error. Make sure Google Chrome is installed.")
+        return []
+
+    url = "https://bama.ir/car/samand/all-models/all-trims?year=1386-0"
+    driver.get(url)
+    time.sleep(7) 
+
+    for _ in range(5):
+        driver.execute_script("window.scrollBy(0, 1500);")
+        time.sleep(2.5)
+
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    driver.quit()
+
+    results = []
+    seen_texts = set()
+
+    links = soup.find_all('a')
+    for link in links:
+        text = link.get_text(separator='|', strip=True)
+        if 'سمند' in text and ('تومان' in text or 'توافقی' in text):
+            if text in seen_texts:
+                continue
+            seen_texts.add(text)
+            
+            parts = text.split('|')
+            price = "N/A"
+            mileage = "N/A"
+            year = "1386"
+            desc = parts[0]
+            
+            for part in parts:
+                if 'تومان' in part or 'توافقی' in part:
+                    price = part
+                elif 'کیلومتر' in part:
+                    mileage = part
+                elif part.isdigit() and len(part) == 4:
+                    year = part
+                    
+            results.append({
+                'Price': price,
+                'Mileage': mileage,
+                'Production Year': year,
+                'Color': "Check Ad",
+                'Transmission': "Manual",
+                'Description': desc
+            })
+            
+            if len(results) >= 50:
+                break
+
+    return results
 
 if __name__ == "__main__":
-    scrape_bama()
+    print("Launching automated browser...")
+    data = extract_bama_cars()
+    if data:
+        df = pd.DataFrame(data)
+        df.to_excel('samand_data.xlsx', index=False)
+        print(f"Extracted {len(df)} cars and saved to samand_data.xlsx")
+    else:
+        print("Extraction failed. Check your internet connection or run again.")
